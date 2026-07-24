@@ -28,10 +28,13 @@ from telegram.ext import (
 # ============================================================
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID_RAW = os.getenv("ADMIN_ID", "0")
 
-ADMIN_ID = int(
-    os.getenv("ADMIN_ID", "0")
-)
+try:
+    ADMIN_ID = int(ADMIN_ID_RAW)
+except ValueError:
+    ADMIN_ID = 0
+
 
 DB_FILE = "radius_users.db"
 
@@ -39,18 +42,18 @@ DB_FILE = "radius_users.db"
 OPERATOR_USERNAME = "@RadiusSergeli"
 OPERATOR_URL = "https://t.me/RadiusSergeli"
 
-# Точка RADIUS
+# Локация магазина
 RADIUS_LATITUDE = 41.224346
 RADIUS_LONGITUDE = 69.213793
 
 
 # ============================================================
-# ЛОГИРОВАНИЕ
+# ЛОГИ
 # ============================================================
 
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.INFO
+    level=logging.INFO,
 )
 
 logger = logging.getLogger(__name__)
@@ -73,11 +76,11 @@ def init_database():
         CREATE TABLE IF NOT EXISTS users (
             telegram_id INTEGER PRIMARY KEY,
             username TEXT,
-            first_name TEXT,
-            last_name TEXT,
+            telegram_first_name TEXT,
+            telegram_last_name TEXT,
+            name TEXT,
             phone TEXT,
-            city TEXT,
-            manager TEXT,
+            employee TEXT,
             created_at TEXT,
             last_seen_at TEXT,
             is_blocked INTEGER DEFAULT 0
@@ -85,7 +88,6 @@ def init_database():
     """)
 
     conn.commit()
-
     conn.close()
 
     logger.info("RADIUS database initialized")
@@ -106,8 +108,8 @@ def save_user(user):
         INSERT INTO users (
             telegram_id,
             username,
-            first_name,
-            last_name,
+            telegram_first_name,
+            telegram_last_name,
             created_at,
             last_seen_at,
             is_blocked
@@ -117,8 +119,8 @@ def save_user(user):
         ON CONFLICT(telegram_id)
         DO UPDATE SET
             username = excluded.username,
-            first_name = excluded.first_name,
-            last_name = excluded.last_name,
+            telegram_first_name = excluded.telegram_first_name,
+            telegram_last_name = excluded.telegram_last_name,
             last_seen_at = excluded.last_seen_at,
             is_blocked = 0
     """, (
@@ -127,11 +129,32 @@ def save_user(user):
         user.first_name,
         user.last_name,
         now,
-        now
+        now,
     ))
 
     conn.commit()
+    conn.close()
 
+
+# ============================================================
+# СОХРАНЕНИЕ ИМЕНИ
+# ============================================================
+
+def save_name(telegram_id, name):
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE users
+        SET name = ?
+        WHERE telegram_id = ?
+    """, (
+        name,
+        telegram_id,
+    ))
+
+    conn.commit()
     conn.close()
 
 
@@ -139,10 +162,7 @@ def save_user(user):
 # СОХРАНЕНИЕ ТЕЛЕФОНА
 # ============================================================
 
-def save_phone(
-    telegram_id,
-    phone
-):
+def save_phone(telegram_id, phone):
 
     conn = get_db()
     cursor = conn.cursor()
@@ -153,68 +173,37 @@ def save_phone(
         WHERE telegram_id = ?
     """, (
         phone,
-        telegram_id
+        telegram_id,
     ))
 
     conn.commit()
-
     conn.close()
 
 
 # ============================================================
-# СОХРАНЕНИЕ ГОРОДА
+# СОХРАНЕНИЕ СОТРУДНИКА
 # ============================================================
 
-def save_city(
-    telegram_id,
-    city
-):
+def save_employee(telegram_id, employee):
 
     conn = get_db()
     cursor = conn.cursor()
 
     cursor.execute("""
         UPDATE users
-        SET city = ?
+        SET employee = ?
         WHERE telegram_id = ?
     """, (
-        city,
-        telegram_id
+        employee,
+        telegram_id,
     ))
 
     conn.commit()
-
     conn.close()
 
 
 # ============================================================
-# СОХРАНЕНИЕ МЕНЕДЖЕРА
-# ============================================================
-
-def save_manager(
-    telegram_id,
-    manager
-):
-
-    conn = get_db()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        UPDATE users
-        SET manager = ?
-        WHERE telegram_id = ?
-    """, (
-        manager,
-        telegram_id
-    ))
-
-    conn.commit()
-
-    conn.close()
-
-
-# ============================================================
-# ПОЛУЧЕНИЕ АКТИВНЫХ ПОЛЬЗОВАТЕЛЕЙ
+# ПОЛУЧЕНИЕ ВСЕХ АКТИВНЫХ ПОЛЬЗОВАТЕЛЕЙ
 # ============================================================
 
 def get_active_users():
@@ -232,10 +221,7 @@ def get_active_users():
 
     conn.close()
 
-    return [
-        user[0]
-        for user in users
-    ]
+    return [user[0] for user in users]
 
 
 # ============================================================
@@ -276,12 +262,10 @@ def get_user_stats():
 
 
 # ============================================================
-# ПОМЕТИТЬ ЗАБЛОКИРОВАВШЕГО ПОЛЬЗОВАТЕЛЯ
+# ПОЛЬЗОВАТЕЛЬ ЗАБЛОКИРОВАЛ БОТА
 # ============================================================
 
-def mark_blocked(
-    telegram_id
-):
+def mark_blocked(telegram_id):
 
     conn = get_db()
     cursor = conn.cursor()
@@ -295,7 +279,6 @@ def mark_blocked(
     ))
 
     conn.commit()
-
     conn.close()
 
 
@@ -317,18 +300,18 @@ def main_keyboard():
             KeyboardButton(
                 "👨‍💼 Operator bilan bog‘lanish"
             )
-        ]
+        ],
 
     ]
 
     return ReplyKeyboardMarkup(
         keyboard,
-        resize_keyboard=True
+        resize_keyboard=True,
     )
 
 
 # ============================================================
-# КНОПКА ТЕЛЕФОНА
+# КНОПКА ОТПРАВКИ ТЕЛЕФОНА
 # ============================================================
 
 def phone_keyboard():
@@ -338,16 +321,16 @@ def phone_keyboard():
         [
             KeyboardButton(
                 "📱 Telefon raqamimni yuborish",
-                request_contact=True
+                request_contact=True,
             )
-        ]
+        ],
 
     ]
 
     return ReplyKeyboardMarkup(
         keyboard,
         resize_keyboard=True,
-        one_time_keyboard=True
+        one_time_keyboard=True,
     )
 
 
@@ -362,19 +345,17 @@ def operator_keyboard():
         [
             InlineKeyboardButton(
                 "👨‍💼 Operator bilan bog‘lanish",
-                url=OPERATOR_URL
+                url=OPERATOR_URL,
             )
-        ]
+        ],
 
     ]
 
-    return InlineKeyboardMarkup(
-        keyboard
-    )
+    return InlineKeyboardMarkup(keyboard)
 
 
 # ============================================================
-# КНОПКА ОПЕРАТОРА ДЛЯ РАССЫЛКИ
+# КНОПКА ОПЕРАТОРА В РАССЫЛКЕ
 # ============================================================
 
 def broadcast_keyboard():
@@ -384,15 +365,13 @@ def broadcast_keyboard():
         [
             InlineKeyboardButton(
                 "👨‍💼 Operator bilan bog‘lanish",
-                url=OPERATOR_URL
+                url=OPERATOR_URL,
             )
-        ]
+        ],
 
     ]
 
-    return InlineKeyboardMarkup(
-        keyboard
-    )
+    return InlineKeyboardMarkup(keyboard)
 
 
 # ============================================================
@@ -401,7 +380,7 @@ def broadcast_keyboard():
 
 async def start(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     user = update.effective_user
@@ -415,16 +394,16 @@ async def start(
         "Assalomu alaykum! 👋\n\n"
 
         "RADIUS kompaniyasining "
-        "rasmiy botiga xush kelibsiz! 🛍️\n\n"
+        "rasmiy botiga xush kelibsiz! 🏪\n\n"
 
-        "Yangiliklar, aksiyalar va "
-        "chegirmalardan birinchilardan "
-        "bo‘lib xabardor bo‘lish uchun "
-        "ro‘yxatdan o‘ting. 🔥\n\n"
+        "Ro‘yxatdan o‘ting va RADIUS "
+        "yangiliklari, aksiyalari va "
+        "maxsus takliflaridan birinchilardan "
+        "bo‘lib xabardor bo‘ling! 🔥\n\n"
 
         "Kerakli bo‘limni tanlang 👇",
 
-        reply_markup=main_keyboard()
+        reply_markup=main_keyboard(),
 
     )
 
@@ -435,28 +414,25 @@ async def start(
 
 async def start_registration(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     context.user_data.clear()
 
-    context.user_data[
-        "registration"
-    ] = True
+    context.user_data["registration"] = True
 
-    context.user_data[
-        "step"
-    ] = "name"
+    context.user_data["step"] = "name"
 
     await update.message.reply_text(
 
         "📝 RADIUS RO‘YXATDAN O‘TISH\n\n"
 
-        "Sizni ro‘yxatdan o‘tkazamiz. ✅\n\n"
+        "Ro‘yxatdan o‘tish uchun "
+        "ma'lumotlaringizni kiriting. ✅\n\n"
 
         "1️⃣ Ismingizni yozing:",
 
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=ReplyKeyboardRemove(),
 
     )
 
@@ -467,7 +443,7 @@ async def start_registration(
 
 async def operator(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     await update.message.reply_text(
@@ -477,44 +453,49 @@ async def operator(
         "Savollaringiz bo‘lsa, "
         "operatorimiz bilan bog‘lanishingiz mumkin.",
 
-        reply_markup=operator_keyboard()
+        reply_markup=operator_keyboard(),
 
     )
 
 
 # ============================================================
-# ОБРАБОТКА ТЕКСТА
+# ТЕКСТОВЫЕ СООБЩЕНИЯ
 # ============================================================
 
 async def message_handler(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     user = update.effective_user
-
     text = update.message.text
+
+    save_user(user)
 
 
     # ========================================================
-    # ГЛАВНОЕ МЕНЮ
+    # РЕГИСТРАЦИЯ
     # ========================================================
 
     if text == "📝 Ro‘yxatdan o‘tish":
 
         await start_registration(
             update,
-            context
+            context,
         )
 
         return
 
 
+    # ========================================================
+    # ОПЕРАТОР
+    # ========================================================
+
     if text == "👨‍💼 Operator bilan bog‘lanish":
 
         await operator(
             update,
-            context
+            context,
         )
 
         return
@@ -524,55 +505,48 @@ async def message_handler(
     # РАССЫЛКА
     # ========================================================
 
-    if context.user_data.get(
-        "broadcast_mode"
-    ):
+    if context.user_data.get("broadcast_mode"):
 
         if user.id != ADMIN_ID:
-
             return
 
-        context.user_data[
-            "broadcast_text"
-        ] = text
+        context.user_data["broadcast_text"] = text
 
         users = get_active_users()
-
-        count = len(users)
 
         keyboard = [
 
             [
                 InlineKeyboardButton(
                     "✅ Отправить всем",
-                    callback_data="confirm_broadcast"
+                    callback_data="confirm_broadcast",
                 )
             ],
 
             [
                 InlineKeyboardButton(
                     "❌ Отмена",
-                    callback_data="cancel_broadcast"
+                    callback_data="cancel_broadcast",
                 )
-            ]
+            ],
 
         ]
 
         await update.message.reply_text(
 
-            "📢 PREVIEW АКЦИИ / СКИДКИ\n\n"
+            "📢 PREVIEW РАССЫЛКИ\n\n"
 
             f"{text}\n\n"
 
             "━━━━━━━━━━━━━━\n"
 
-            f"👥 Получателей: {count}\n\n"
+            f"👥 Получателей: {len(users)}\n\n"
 
             "Отправить сообщение всем?",
 
             reply_markup=InlineKeyboardMarkup(
                 keyboard
-            )
+            ),
 
         )
 
@@ -583,13 +557,9 @@ async def message_handler(
     # РЕГИСТРАЦИЯ
     # ========================================================
 
-    if context.user_data.get(
-        "registration"
-    ):
+    if context.user_data.get("registration"):
 
-        step = context.user_data.get(
-            "step"
-        )
+        step = context.user_data.get("step")
 
 
         # ====================================================
@@ -598,49 +568,22 @@ async def message_handler(
 
         if step == "name":
 
-            context.user_data[
-                "name"
-            ] = text
+            context.user_data["name"] = text
 
-            context.user_data[
-                "step"
-            ] = "city"
-
-            await update.message.reply_text(
-
-                "2️⃣ Qaysi shahar/tumanda yashaysiz?"
-
-            )
-
-            return
-
-
-        # ====================================================
-        # ГОРОД / РАЙОН
-        # ====================================================
-
-        if step == "city":
-
-            context.user_data[
-                "city"
-            ] = text
-
-            save_city(
+            save_name(
                 user.id,
-                text
+                text,
             )
 
-            context.user_data[
-                "step"
-            ] = "phone"
+            context.user_data["step"] = "phone"
 
             await update.message.reply_text(
 
-                "3️⃣ Telefon raqamingizni yuboring 📱\n\n"
+                "2️⃣ Telefon raqamingizni yuboring 📱\n\n"
 
                 "Quyidagi tugmani bosing:",
 
-                reply_markup=phone_keyboard()
+                reply_markup=phone_keyboard(),
 
             )
 
@@ -648,25 +591,21 @@ async def message_handler(
 
 
         # ====================================================
-        # МЕНЕДЖЕР
+        # СОТРУДНИК
         # ====================================================
 
-        if step == "manager":
+        if step == "employee":
 
-            manager_name = text
+            context.user_data["employee"] = text
 
-            context.user_data[
-                "manager"
-            ] = manager_name
-
-            save_manager(
+            save_employee(
                 user.id,
-                manager_name
+                text,
             )
 
             await finish_registration(
                 update,
-                context
+                context,
             )
 
             return
@@ -681,27 +620,26 @@ async def message_handler(
         "Iltimos, menyudan kerakli "
         "bo‘limni tanlang 👇",
 
-        reply_markup=main_keyboard()
+        reply_markup=main_keyboard(),
 
     )
 
 
 # ============================================================
-# ОБРАБОТКА ТЕЛЕФОНА
+# ПОЛУЧЕНИЕ ТЕЛЕФОНА
 # ============================================================
 
 async def contact_handler(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     user = update.effective_user
-
     contact = update.message.contact
 
 
     # ========================================================
-    # ПРОВЕРКА ВЛАДЕЛЬЦА НОМЕРА
+    # ПРОВЕРКА СОБСТВЕННОГО НОМЕРА
     # ========================================================
 
     if contact.user_id != user.id:
@@ -713,7 +651,7 @@ async def contact_handler(
 
             "Quyidagi tugmani bosing 👇",
 
-            reply_markup=phone_keyboard()
+            reply_markup=phone_keyboard(),
 
         )
 
@@ -724,24 +662,20 @@ async def contact_handler(
     # ПРОВЕРКА РЕГИСТРАЦИИ
     # ========================================================
 
-    if not context.user_data.get(
-        "registration"
-    ):
+    if not context.user_data.get("registration"):
 
         await update.message.reply_text(
 
             "Iltimos, avval ro‘yxatdan o‘ting.",
 
-            reply_markup=main_keyboard()
+            reply_markup=main_keyboard(),
 
         )
 
         return
 
 
-    if context.user_data.get(
-        "step"
-    ) != "phone":
+    if context.user_data.get("step") != "phone":
 
         return
 
@@ -754,30 +688,25 @@ async def contact_handler(
 
     save_phone(
         user.id,
-        phone
+        phone,
     )
 
-    context.user_data[
-        "phone"
-    ] = phone
+    context.user_data["phone"] = phone
+
+    context.user_data["step"] = "employee"
 
 
     # ========================================================
-    # ПЕРЕХОД К ВОПРОСУ О МЕНЕДЖЕРЕ
+    # ВОПРОС О СОТРУДНИКЕ
     # ========================================================
-
-    context.user_data[
-        "step"
-    ] = "manager"
-
 
     await update.message.reply_text(
 
-        "4️⃣ Sizga qaysi menejer xizmat ko‘rsatdi?\n\n"
+        "3️⃣ Sizga qaysi xodim xizmat ko‘rsatdi?\n\n"
 
-        "✍️ Menejer ismini yozing:",
+        "✍️ Xodim ismini yozing:",
 
-        reply_markup=ReplyKeyboardRemove()
+        reply_markup=ReplyKeyboardRemove(),
 
     )
 
@@ -788,44 +717,30 @@ async def contact_handler(
 
 async def finish_registration(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     user = update.effective_user
 
-
-    # ========================================================
-    # ПОЛУЧАЕМ ДАННЫЕ
-    # ========================================================
-
     name = context.user_data.get(
         "name",
-        "Noma'lum"
-    )
-
-    city = context.user_data.get(
-        "city",
-        "Noma'lum"
+        "Noma'lum",
     )
 
     phone = context.user_data.get(
         "phone",
-        "Noma'lum"
+        "Noma'lum",
     )
 
-    manager_name = context.user_data.get(
-        "manager",
-        "Noma'lum"
+    employee = context.user_data.get(
+        "employee",
+        "Noma'lum",
     )
 
     username = (
-
         f"@{user.username}"
-
         if user.username
-
         else "Username yo‘q"
-
     )
 
 
@@ -841,39 +756,49 @@ async def finish_registration(
 
         f"👤 Ism: {name}\n"
 
-        f"📍 Shahar/tuman: {city}\n"
-
         f"📱 Telefon: {phone}\n"
 
-        f"👨‍💼 Menejer: {manager_name}\n\n"
+        f"👨‍💼 Xizmat ko‘rsatgan xodim: {employee}\n\n"
 
         f"👤 Username: {username}\n"
 
-        f"🆔 Telegram ID: {user.id}"
+        f"🆔 Telegram ID: {user.id}\n"
+
+        f"🕐 Sana: {datetime.now().strftime('%d.%m.%Y %H:%M')}"
 
     )
 
 
-    try:
+    # ========================================================
+    # ОТПРАВКА АДМИНУ
+    # ========================================================
 
-        await context.bot.send_message(
+    if ADMIN_ID:
 
-            chat_id=ADMIN_ID,
+        try:
 
-            text=admin_message
+            await context.bot.send_message(
 
-        )
+                chat_id=ADMIN_ID,
 
-        logger.info(
-            f"Registration notification sent: {user.id}"
-        )
+                text=admin_message,
 
-    except Exception as error:
+            )
+
+            logger.info(
+                f"Registration notification sent: {user.id}"
+            )
+
+        except Exception as error:
+
+            logger.error(
+                f"Admin notification error: {error}"
+            )
+
+    else:
 
         logger.error(
-
-            f"Admin notification error: {error}"
-
+            "ADMIN_ID is not configured"
         )
 
 
@@ -885,7 +810,7 @@ async def finish_registration(
 
 
     # ========================================================
-    # ПОЗДРАВЛЕНИЕ ПОЛЬЗОВАТЕЛЮ
+    # ПОЗДРАВЛЕНИЕ
     # ========================================================
 
     await update.message.reply_text(
@@ -895,24 +820,22 @@ async def finish_registration(
         "Siz RADIUS kompaniyasida "
         "muvaffaqiyatli ro‘yxatdan o‘tdingiz! ✅\n\n"
 
-        "Endi siz eng so‘nggi aksiyalar, "
-        "chegirmalar va maxsus takliflardan "
-        "birinchilardan bo‘lib xabardor bo‘lasiz! 🛍️🔥",
+        "RADIUS jamoasi sizni kutib qoladi! 🏪",
 
-        reply_markup=main_keyboard()
+        reply_markup=main_keyboard(),
 
     )
 
 
     # ========================================================
-    # ОТПРАВЛЯЕМ ТОЧКУ RADIUS
+    # ЛОКАЦИЯ
     # ========================================================
 
     await update.message.reply_location(
 
         latitude=RADIUS_LATITUDE,
 
-        longitude=RADIUS_LONGITUDE
+        longitude=RADIUS_LONGITUDE,
 
     )
 
@@ -923,7 +846,7 @@ async def finish_registration(
 
 async def broadcast(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     user = update.effective_user
@@ -940,16 +863,14 @@ async def broadcast(
         return
 
 
-    context.user_data[
-        "broadcast_mode"
-    ] = True
+    context.user_data["broadcast_mode"] = True
 
 
     await update.message.reply_text(
 
-        "📢 AKSIYA / CHEGIRMA RASSYLKASI\n\n"
+        "📢 RADIUS RASSYLKA\n\n"
 
-        "Yuboriladigan xabarni yuboring.\n\n"
+        "Aksiya yoki chegirma xabarini yuboring.\n\n"
 
         "❌ Bekor qilish uchun /cancel yozing."
 
@@ -962,23 +883,27 @@ async def broadcast(
 
 async def cancel(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     user = update.effective_user
 
 
-    if user.id == ADMIN_ID:
+    if user.id != ADMIN_ID:
 
-        context.user_data.clear()
+        return
 
-        await update.message.reply_text(
 
-            "❌ Rassylka bekor qilindi.",
+    context.user_data.clear()
 
-            reply_markup=main_keyboard()
 
-        )
+    await update.message.reply_text(
+
+        "❌ Rassylka bekor qilindi.",
+
+        reply_markup=main_keyboard(),
+
+    )
 
 
 # ============================================================
@@ -987,7 +912,7 @@ async def cancel(
 
 async def users_command(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     user = update.effective_user
@@ -1017,48 +942,12 @@ async def users_command(
 
 
 # ============================================================
-# /TEST_BROADCAST
-# ============================================================
-
-async def test_broadcast(
-    update: Update,
-    context: ContextTypes.DEFAULT_TYPE
-):
-
-    user = update.effective_user
-
-
-    if user.id != ADMIN_ID:
-
-        return
-
-
-    await context.bot.send_message(
-
-        chat_id=ADMIN_ID,
-
-        text=(
-
-            "🧪 TEST AKSIYA XABARI\n\n"
-
-            "Bu test xabari. Agar siz uni "
-            "ko‘rsangiz, reklama va aksiya "
-            "rassylkasi ishlayapti. ✅"
-
-        ),
-
-        reply_markup=broadcast_keyboard()
-
-    )
-
-
-# ============================================================
 # CALLBACK-КНОПКИ
 # ============================================================
 
 async def callback_handler(
     update: Update,
-    context: ContextTypes.DEFAULT_TYPE
+    context: ContextTypes.DEFAULT_TYPE,
 ):
 
     query = update.callback_query
@@ -1095,7 +984,6 @@ async def callback_handler(
 
         users = get_active_users()
 
-
         success = 0
 
         failed = 0
@@ -1122,16 +1010,13 @@ async def callback_handler(
 
                     text=message_text,
 
-                    reply_markup=broadcast_keyboard()
+                    reply_markup=broadcast_keyboard(),
 
                 )
 
                 success += 1
 
-
-                await asyncio.sleep(
-                    0.05
-                )
+                await asyncio.sleep(0.05)
 
 
             except Exception as error:
@@ -1193,8 +1078,6 @@ async def callback_handler(
 
             ),
 
-            reply_markup=main_keyboard()
-
         )
 
         return
@@ -1227,7 +1110,7 @@ def main():
         raise ValueError(
 
             "BOT_TOKEN topilmadi. "
-            "Replit Secrets ga BOT_TOKEN qo‘shing."
+            "Railway Variables ga BOT_TOKEN qo‘shing."
 
         )
 
@@ -1237,7 +1120,7 @@ def main():
         raise ValueError(
 
             "ADMIN_ID topilmadi. "
-            "Replit Secrets ga ADMIN_ID qo‘shing."
+            "Railway Variables ga ADMIN_ID qo‘shing."
 
         )
 
@@ -1268,7 +1151,7 @@ def main():
 
         CommandHandler(
             "start",
-            start
+            start,
         )
 
     )
@@ -1278,7 +1161,7 @@ def main():
 
         CommandHandler(
             "broadcast",
-            broadcast
+            broadcast,
         )
 
     )
@@ -1288,17 +1171,7 @@ def main():
 
         CommandHandler(
             "users",
-            users_command
-        )
-
-    )
-
-
-    application.add_handler(
-
-        CommandHandler(
-            "test_broadcast",
-            test_broadcast
+            users_command,
         )
 
     )
@@ -1308,14 +1181,14 @@ def main():
 
         CommandHandler(
             "cancel",
-            cancel
+            cancel,
         )
 
     )
 
 
     # ========================================================
-    # ТЕЛЕФОН
+    # КОНТАКТ
     # ========================================================
 
     application.add_handler(
@@ -1324,7 +1197,7 @@ def main():
 
             filters.CONTACT,
 
-            contact_handler
+            contact_handler,
 
         )
 
@@ -1332,14 +1205,14 @@ def main():
 
 
     # ========================================================
-    # INLINE-КНОПКИ
+    # CALLBACK
     # ========================================================
 
     application.add_handler(
 
         CallbackQueryHandler(
 
-            callback_handler
+            callback_handler,
 
         )
 
@@ -1357,7 +1230,7 @@ def main():
             filters.TEXT
             & ~filters.COMMAND,
 
-            message_handler
+            message_handler,
 
         )
 

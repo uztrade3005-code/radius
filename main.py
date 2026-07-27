@@ -357,7 +357,48 @@ def phone_keyboard():
         one_time_keyboard=True,
     )
 
+# ============================================================
+# КНОПКИ МЕНЕДЖЕРОВ
+# ============================================================
 
+def managers_keyboard():
+
+    keyboard = []
+
+    for manager in MANAGERS:
+
+        keyboard.append([
+
+            InlineKeyboardButton(
+
+                manager,
+
+                callback_data=
+                f"manager:{manager}",
+
+            )
+
+        ])
+
+    keyboard.append([
+
+        InlineKeyboardButton(
+
+            "✍️ Boshqa xodim",
+
+            callback_data=
+            "manager:other",
+
+        )
+
+    ])
+
+    return InlineKeyboardMarkup(
+
+        keyboard
+
+    )
+    
 # ============================================================
 # КНОПКА ОПЕРАТОРА
 # ============================================================
